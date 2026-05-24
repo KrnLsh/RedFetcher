@@ -5,9 +5,10 @@ A lightweight, no-API-key-required Python tool designed to scrape Reddit discuss
 ## Features
 
 * **No API Key Required:** Bypasses Reddit's developer API restrictions by leveraging public `.json` endpoints, meaning it works immediately out of the box.
-* **Smart Query Generation:** Automatically strips conversational fluff words (like "review", "thoughts", "opinion") and utilizes Boolean search logic (`OR`) to cast a wider net and capture highly relevant threads that a standard search would miss.
+* **Auto-Variation Search Engine:** Automatically maximizes your results by generating multiple search queries from your input. It strips fluff words, converts numerical values (e.g., `5000` to `5k`), removes prepositions, and runs sequential searches in the background to cast the widest net possible.
+* **Built-in Deduplication:** Even when utilizing multiple search variations, the script tracks unique Post IDs to ensure you never get duplicate threads in your final text file.
 * **Recursive Comment Extraction:** Does not just grab top-level comments. It recursively digs through the entire conversation tree, properly indenting nested replies so AI models can understand the context of the conversation.
-* **Dynamic Console Output:** Features a clean, single-line updating terminal UI that tracks scraping progress without cluttering the console.
+* **Two-Phase Extraction & Dynamic UI:** Silently gathers unique posts in the background first, then utilizes a clean, single-line updating terminal UI that tracks the actual comment scraping progress without cluttering your console.
 * **Customizable Search Parameters:** Allows users to define the target subreddit, search topic, post extraction limit, and preferred sorting method (Relevance, Top, New, Hot, or Comment Count).
 * **HTML Sanitization:** Automatically translates HTML artifacts (like `&gt;`) back into standard text and filters out deleted or removed comments.
 
@@ -40,7 +41,7 @@ python RedFetch.py
 You will be prompted to enter your search criteria interactively:
 
 1. **Subreddit:** Enter the target community (e.g., `mkindia`, `buildapc`).
-2. **Topic:** Enter what you want to research (e.g., `Aula F75 review`).
+2. **Topic:** Enter what you want to research (e.g., `best keyboard under 5000`).
 3. **Limit:** Set the maximum number of posts to scrape (defaults to 8 if left blank).
 4. **Sorting Method:** Choose how the search results are prioritized. 
 
@@ -50,7 +51,7 @@ You will be prompted to enter your search criteria interactively:
 Reddit Scraper
 ----------------------------------------
 1. Enter the subreddit name : mkindia
-2. Enter the topic you want to research : Aula F75 review
+2. Enter the topic you want to research : best keyboard under 5000
 3. Enter the number of posts to scrape [Press Enter for default: 8]: 5
 
 4. Select sorting method:
@@ -61,13 +62,17 @@ Reddit Scraper
    [5] Comments
 Enter number [1-5]: 1
 
-Smart Search Activated: "Aula F75 review" OR "aula f75"
+Auto-generated search variations:
+  1. best keyboard under 5000
+  2. keyboard under 5000
+  3. keyboard under 5k
+  4. keyboard 5k
 
-Searching r/mkindia for the top 5 threads sorted by relevance...
+Searching r/mkindia for up to 5 unique threads...
 
-Scraping Thread 5/5: Bought aula f75 now I am regretting...
+Scraping Thread 5/5: What keyboard should i get for under 5000                      
 
-All raw data saved to: Aula_F75_review_Reddit_Data.txt
+SUCCESS! 5 unique threads saved to: best_keyboard_under_5000_Reddit_Data.txt
 ```
 
 ## Output Format
@@ -78,18 +83,18 @@ The script generates a neatly formatted `.txt` file in the same directory. The o
 ```text
 --- REDDIT SCRAPE DATA ---
 SUBREDDIT: r/mkindia
-TOPIC: Aula F75 review
+ORIGINAL TOPIC: best keyboard under 5000
 SORTED BY: relevance
+TOTAL THREADS SCRAPED: 5
 ============================================================
 
-TITLE: Just got the Aula F75!
-ORIGINAL POST: Loving this new keyboard I got recently...
+TITLE: What keyboard should i get for under 5000
+ORIGINAL POST: Looking for some suggestions for a mechanical keyboard...
 COMMENTS:
-- How are the switches?
-    - They sound amazing, very creamy out of the box.
-        - Good to know, thanks!
-- Did you buy it from Amazon?
-    - Yes, got it during the prime sale.
+- Have you checked out the Aula F75?
+    - I second this. The stock switches are amazing for the price.
+        - Thanks! I will look into it.
+- Keychron C1 is also a solid choice if you want something minimal.
 ```
 
 ## AI Use Case
