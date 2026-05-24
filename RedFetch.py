@@ -12,10 +12,9 @@ def generate_smart_query(user_topic):
     base_topic = re.sub(' +', ' ', base_topic)
 
     if base_topic == user_topic.lower() or not base_topic:
-        return f'"{user_topic}"'
+        return user_topic
     
-    smart_query = f'"{user_topic}" OR "{base_topic}"'
-    print(f"Smart Search Activated: {smart_query}")
+    smart_query = f'{user_topic} OR {base_topic}'
     return smart_query
 
 def extract_all_comments(children_list, indent_level=0):
