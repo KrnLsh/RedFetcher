@@ -3,19 +3,36 @@ import time
 import re
 import html 
 
-def generate_smart_query(user_topic):
-    fluff_words = ["review", "reviews", "thoughts", "opinion", "opinions", "worth it", "vs", "good", "bad", "help", "question"]
-    base_topic = user_topic.lower()
+def generate_search_variations(user_topic):
+    
+    queries = []
+    base = user_topic.lower()
+    
+    queries.append(base)
+    
+    fluff_words = ["best", "review", "reviews", "thoughts", "opinion", "opinions", "worth it", "vs", "good", "bad", "help", "question", "recommendation", "suggest", "suggestions"]
+    clean_base = base
     for word in fluff_words:
-        base_topic = re.sub(rf'\b{word}\b', '', base_topic).strip()
+        clean_base = re.sub(rf'\b{word}\b', '', clean_base).strip()
+    clean_base = re.sub(' +', ' ', clean_base)
     
-    base_topic = re.sub(' +', ' ', base_topic)
-
-    if base_topic == user_topic.lower() or not base_topic:
-        return user_topic
+    if clean_base and clean_base not in queries:
+        queries.append(clean_base)
+        
+    k_base = re.sub(r'(\d)[,\s]*000\b', r'\1k', clean_base)
+    if k_base and k_base not in queries:
+        queries.append(k_base)
+        
+    prep_words = ["under", "around", "for", "with", "in", "a", "an", "the", "to", "my", "of"]
+    super_clean = k_base
+    for word in prep_words:
+        super_clean = re.sub(rf'\b{word}\b', '', super_clean).strip()
+    super_clean = re.sub(' +', ' ', super_clean)
     
-    smart_query = f'{user_topic} OR {base_topic}'
-    return smart_query
+    if super_clean and super_clean not in queries:
+        queries.append(super_clean)
+        
+    return queries
 
 def extract_all_comments(children_list, indent_level=0):
     comments_text = ""
@@ -42,42 +59,65 @@ def scrape_reddit_data(subreddit, user_topic, limit=8, sort_by="relevance"):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
     }
     
-    search_query = generate_smart_query(user_topic)
-    print(f"\nSearching r/{subreddit} for the top {limit} threads sorted by {sort_by}...\n")
+    search_queries = generate_search_variations(user_topic)
     
-    search_url = f"https://www.reddit.com/r/{subreddit}/search.json"
-    params = {
-        'q': search_query,
-        'restrict_sr': 'on', 
-        'sort': sort_by,
-        'limit': limit
-    }
+    print(f"\nAuto-generated search variations:")
+    for i, q in enumerate(search_queries):
+        print(f"  {i+1}. {q}")
+    print(f"\nSearching r/{subreddit} for up to {limit} unique threads...\n")
     
-    response = requests.get(search_url, headers=headers, params=params)
+    collected_posts = []
+    seen_post_ids = set() 
     
-    if response.status_code != 200:
-        print(f"Error fetching data: HTTP {response.status_code}")
-        return
+    
+    for query in search_queries:
+        if len(collected_posts) >= limit:
+            break 
+            
+        search_url = f"https://www.reddit.com/r/{subreddit}/search.json"
         
-    search_data = response.json()
-    posts = search_data['data']['children']
-    
-    if not posts:
-        print("No posts found. Try a different topic or subreddit.")
+        request_limit = 100 if limit > 25 else limit 
+        
+        params = {
+            'q': query,
+            'restrict_sr': 'on', 
+            'sort': sort_by,
+            'limit': request_limit
+        }
+        
+        response = requests.get(search_url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            search_data = response.json()
+            posts = search_data['data']['children']
+            
+            for post in posts:
+                post_id = post['data']['id']
+                if post_id not in seen_post_ids:
+                    seen_post_ids.add(post_id)
+                    collected_posts.append(post)
+                    if len(collected_posts) >= limit:
+                        break
+        
+        time.sleep(1.5)
+
+    if not collected_posts:
+        print("No posts found. Try a completely different topic or subreddit.")
         return
 
     output_text = f"--- REDDIT SCRAPE DATA ---\n"
     output_text += f"SUBREDDIT: r/{subreddit}\n"
-    output_text += f"TOPIC: {user_topic}\n"
+    output_text += f"ORIGINAL TOPIC: {user_topic}\n"
     output_text += f"SORTED BY: {sort_by}\n"
+    output_text += f"TOTAL THREADS SCRAPED: {len(collected_posts)}\n"
     output_text += ("="*60) + "\n\n"
     
-    for index, post in enumerate(posts):
+    for index, post in enumerate(collected_posts):
         post_data = post['data']
         title = post_data['title']
         permalink = post_data['permalink']
         
-        display_text = f"Scraping Thread {index + 1}/{len(posts)}: {title}"
+        display_text = f"Scraping Thread {index + 1}/{len(collected_posts)}: {title}"
         print(f"\r{display_text[:75].ljust(75)}", end="", flush=True)
         
         output_text += f"TITLE: {title}\n"
@@ -106,7 +146,7 @@ def scrape_reddit_data(subreddit, user_topic, limit=8, sort_by="relevance"):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(output_text)
         
-    print(f"\n\nAll raw data saved to: {filename}")
+    print(f"\n\nSUCCESS! {len(collected_posts)} unique threads saved to: {filename}")
 
 
 if __name__ == "__main__":
