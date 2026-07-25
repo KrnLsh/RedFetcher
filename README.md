@@ -1,34 +1,47 @@
 # RedFetch
 
-A lightweight, no-API-key-required Python tool designed to scrape Reddit discussions and format them into clean, nested text files. RedFetch is purpose-built to extract data for Large Language Models (LLMs) like ChatGPT, Claude, or Gemini, making it incredibly easy to summarize hours of product research, sentiment analysis, and community discussions in minutes.
+A powerful Python research tool designed to scrape Reddit discussions, post bodies, and full nested comment trees into clean, token-counted text files. 
 
-## Features
+By combining **Selenium** browser automation, **PRAW** (Python Reddit API Wrapper), and **tiktoken** token budgeting, RedFetch lets you easily gather community feedback, sentiment, and product research pre-formatted specifically for Large Language Models (LLMs) like ChatGPT, Claude, and Gemini.
 
-* **No API Key Required:** Bypasses Reddit's developer API restrictions by leveraging public `.json` endpoints, meaning it works immediately out of the box.
-* **Auto-Variation Search Engine:** Automatically maximizes your results by generating multiple search queries from your input. It strips fluff words, converts numerical values (e.g., `5000` to `5k`), removes prepositions, and runs sequential searches in the background to cast the widest net possible.
-* **Built-in Deduplication:** Even when utilizing multiple search variations, the script tracks unique Post IDs to ensure you never get duplicate threads in your final text file.
-* **Recursive Comment Extraction:** Does not just grab top-level comments. It recursively digs through the entire conversation tree, properly indenting nested replies so AI models can understand the context of the conversation.
-* **Two-Phase Extraction & Dynamic UI:** Silently gathers unique posts in the background first, then utilizes a clean, single-line updating terminal UI that tracks the actual comment scraping progress without cluttering your console.
-* **Customizable Search Parameters:** Allows users to define the target subreddit, search topic, post extraction limit, and preferred sorting method (Relevance, Top, New, Hot, or Comment Count).
-* **HTML Sanitization:** Automatically translates HTML artifacts (like `&gt;`) back into standard text and filters out deleted or removed comments.
+## Key Features
+
+* **Hybrid Scraping Architecture:** Leverages **Selenium** to perform browser searches and infinite scrolling to gather thread URLs, combined with **PRAW** for deep, reliable API extraction of post metadata and comments.
+* **Token-Budget Control (`tiktoken`):** Tracks precise OpenAI token counts (`cl100k_base`) in real-time as data is written. Set a token cap so your output file fits perfectly inside your LLM's context window.
+* **Flexible Search & Direct URL Support:** Search across all of Reddit (`all`), restrict your search to a specific subreddit (`r/mkindia`), or paste a direct Reddit thread URL to scrape a single specific post.
+* **Interactive Browser Search:** Opens a Chrome window to perform searches and allows optional manual Reddit login to bypass search restrictions or blocks.
+* **Recursive Nested Comments:** Captures full comment hierarchy with structured indents and author tags (`-> [author]: comment body`) so AI models can understand conversation context.
+* **Live Status Dashboard:** Terminal UI updates dynamically on a single line, displaying the current thread title, active operation, and live token count against your limit.
 
 ## Prerequisites
 
-* Python 3.6 or higher
-* `requests` library
+* Python 3.8 or higher
+* Google Chrome installed (required for Selenium WebDriver)
+* Reddit API Credentials (for PRAW)
 
-## Installation
+## Dependencies
 
-1. Clone the repository to your local machine:
+Install the required Python packages:
+
 ```bash
-git clone https://github.com/yourusername/RedFetch.git
-cd RedFetch
+pip install praw selenium tiktoken
 ```
 
-2. Install the required dependencies:
-```bash
-pip install requests
-```
+## Setup & Configuration
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/RedFetch.git
+   cd RedFetch
+   ```
+
+2. **Add your Reddit API credentials:**
+   Open `RedFetch.py` in your text editor and update the credentials at the top of the file:
+   ```python
+   CLIENT_ID = 'YOUR_CLIENT_ID'
+   CLIENT_SECRET = 'YOUR_CLIENT_SECRET' # Or None if using script app without secret
+   USER_AGENT = 'YOUR_USER_AGENT'
+   ```
 
 ## Usage
 
@@ -38,75 +51,78 @@ Run the script from your terminal:
 python RedFetch.py
 ```
 
-You will be prompted to enter your search criteria interactively:
+Follow the interactive prompts:
 
-1. **Subreddit:** Enter the target community (e.g., `mkindia`, `buildapc`).
-2. **Topic:** Enter what you want to research (e.g., `best keyboard under 5000`).
-3. **Limit:** Set the maximum number of posts to scrape (defaults to 8 if left blank).
-4. **Sorting Method:** Choose how the search results are prioritized. 
+1. **Query or URL:** Enter a search topic (e.g., `best mechanical keyboard`) **OR** paste a direct Reddit thread link.
+2. **Scope:** Search across all of Reddit (`all`) or type a specific subreddit name (e.g., `mkindia`). *(Skipped if a direct URL is entered)*.
+3. **Token Limit:** Enter the maximum token budget for your output file (e.g., `10000`). Press `Enter` for unlimited.
 
 ### Example Interaction
 
 ```text
-Reddit Scraper
-----------------------------------------
-1. Enter the subreddit name : mkindia
-2. Enter the topic you want to research : best keyboard under 5000
-3. Enter the number of posts to scrape [Press Enter for default: 8]: 5
+=== Reddit Browser-Search -> API Scraper (Token Tracker Edition) ===
+1. Enter your search query OR a direct Reddit thread URL: best mechanical keyboard under 5000
+2. Search entire Reddit ('all') or a specific subreddit? (Enter 'all' or sub name): mkindia
+3. Enter maximum token limit for the output txt file (Press Enter for unlimited): 5000
 
-4. Select sorting method:
-   [1] Relevance (Default)
-   [2] Top
-   [3] New
-   [4] Hot
-   [5] Comments
-Enter number [1-5]: 1
+[Browser] Launching browser...
+[Browser] Opening Reddit login page...
 
-Auto-generated search variations:
-  1. best keyboard under 5000
-  2. keyboard under 5000
-  3. keyboard under 5k
-  4. keyboard 5k
+[ACTION REQUIRED] Please log in to Reddit in the opened browser window.
+Once you are successfully logged in (or if you wish to skip), press Enter here to continue searching...
 
-Searching r/mkindia for up to 5 unique threads...
+[Browser] Proceeding to search for 'best mechanical keyboard under 5000'...
+[Browser] Gathering thread URLs from search. Please wait...
+[Browser] Extracted 42 unique thread URL(s) from search.
 
-Scraping Thread 5/5: What keyboard should i get for under 5000                      
+Starting API extraction...
 
-SUCCESS! 5 unique threads saved to: best_keyboard_under_5000_Reddit_Data.txt
+[Thread 1/42: What keyboard should I get for under 5... ] Extracting comments | Tokens: 3420 / 5000
+
+
+========================================
+EXTRACTION COMPLETE
+========================================
+STOPPED: Reached your token limit of 5000.
+Total Unique Threads Scraped: 2
+Total Tokens Extracted: 5012
+Data saved to: /path/to/Research_best_mechanical_keyboard_under__mkindia.txt
 ```
 
 ## Output Format
 
-The script generates a neatly formatted `.txt` file in the same directory. The output is structured to easily pass into an AI prompt window. 
+The script generates a formatted `.txt` file ready to copy and paste into an AI prompt.
 
-**Sample Output Structure:**
+**Sample Output (`Research_query_subreddit.txt`):**
+
 ```text
---- REDDIT SCRAPE DATA ---
-SUBREDDIT: r/mkindia
-ORIGINAL TOPIC: best keyboard under 5000
-SORTED BY: relevance
-TOTAL THREADS SCRAPED: 5
+RESEARCH QUERY: best mechanical keyboard under 5000
+SOURCE: r/mkindia
 ============================================================
 
-TITLE: What keyboard should i get for under 5000
-ORIGINAL POST: Looking for some suggestions for a mechanical keyboard...
-COMMENTS:
-- Have you checked out the Aula F75?
-    - I second this. The stock switches are amazing for the price.
-        - Thanks! I will look into it.
-- Keychron C1 is also a solid choice if you want something minimal.
+THREAD TITLE: What mechanical keyboard should I get for under 5000?
+THREAD AUTHOR: tech_guy99
+THREAD SCORE: 34
+POST BODY:
+Looking for suggestions for a solid budget mechanical keyboard for typing and gaming...
+------------------------------ COMMENTS ------------------------------
+-> [keyboard_fan]: Have you checked out the Aula F75?
+    -> [tech_guy99]: I've seen it mentioned a lot, is build quality good?
+        -> [keyboard_fan]: Yes, stock switches and gasket mount feel great for the price.
+-> [budget_builder]: Keychron C1 is another great choice if you want hot-swappable switches.
+
+============================================================
 ```
 
-## AI Use Case
+## Using Output with AI
 
-RedFetch structures data specifically for AI ingestion. To summarize your research:
-1. Run RedFetch to generate your `.txt` file.
-2. Open the file, select all (`Ctrl+A`), and copy (`Ctrl+C`).
-3. Paste the contents into your preferred LLM alongside a prompt such as:
-   * *"Based on this Reddit data, give me a list of Pros and Cons."*
-   * *"What are the most common issues users face with this product?"*
-   * *"Summarize the overall community sentiment."*
+1. Run **RedFetch** and set a token limit matching your AI model's context budget (e.g., `8000` tokens for ChatGPT/Claude).
+2. Open the generated text file, copy its entire contents, and paste it into your AI prompt.
+3. Example prompt ideas:
+   * *"Analyze the sentiment across these Reddit discussions."*
+   * *"Extract a list of recommended products along with user pros and cons."*
+   * *"What are the most common complaints mentioned in these threads?"*
 
 ## Disclaimer
 
-This script is for educational and personal research purposes. Please ensure your usage complies with Reddit's Terms of Service regarding data scraping and automated access. The script includes artificial delays (`time.sleep`) to respect rate limits and prevent IP blocking.
+This tool is created for personal research and educational purposes. Ensure your usage complies with Reddit's Terms of Service and API Guidelines.
