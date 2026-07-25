@@ -2,10 +2,6 @@ import praw
 import os
 import sys
 import tiktoken
-import time
-import urllib.parse
-from selenium import webdriver
-from selenium.webdriver.common.by import By
 
 CLIENT_ID = 'YOUR_CLIENT_ID'
 CLIENT_SECRET = None
@@ -53,67 +49,37 @@ def write_comments(comments, file_handle, level, state, enc):
         if comment.replies:
             write_comments(comment.replies, file_handle, level + 1, state, enc)
 
-def get_thread_urls_from_browser(query, scope):
-    print(f"\n[Browser] Launching browser...")
-    
-    encoded_query = urllib.parse.quote(query)
-    if scope.lower() == 'all':
-        search_url = f"https://www.reddit.com/search/?q={encoded_query}&type=link"
-    else:
-        search_url = f"https://www.reddit.com/r/{scope}/search/?q={encoded_query}&restrict_sr=1&type=link"
-        
-    options = webdriver.ChromeOptions()
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
-    driver = webdriver.Chrome(options=options)
-    
+def get_thread_urls_from_api(reddit, query, scope, target_limit=500):
+    subreddit_name = 'all' if scope.lower() == 'all' else scope
+    print(f"\n[API] Searching r/{subreddit_name} for '{query}'...")
+
+    urls = []
+    seen_urls = set()
+
     try:
-        print("\n[Browser] Opening Reddit login page...")
-        driver.get("https://www.reddit.com/login")
-        input("\n[ACTION REQUIRED] Please log in to Reddit in the opened browser window.\nOnce you are successfully logged in (or if you wish to skip), press Enter here to continue searching...")
-        
-        print(f"\n[Browser] Proceeding to search for '{query}'...")
-        driver.get(search_url)
-        time.sleep(3)
-        
-        urls = set()
-        last_height = driver.execute_script("return document.body.scrollHeight")
-        
-        target_limit = 500 
-        
-        print(f"[Browser] Gathering thread URLs from search. Please wait...")
-        
-        while len(urls) < target_limit:
-            elements = driver.find_elements(By.TAG_NAME, 'a')
-            for el in elements:
-                try:
-                    href = el.get_attribute('href')
-                    if href and '/comments/' in href:
-                        if href.startswith('/'):
-                            href = f"https://www.reddit.com{href}"
-                        
-                        if 'reddit.com' in href:
-                            clean_url = href.split('?')[0]
-                            urls.add(clean_url)
-                except Exception:
-                    continue
-            
-            if len(urls) >= target_limit:
-                break
-                
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2.5)
-            
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
-            
-    finally:
-        driver.quit()
-        
-    urls_list = list(urls)[:target_limit]
-    print(f"[Browser] Extracted {len(urls_list)} unique thread URL(s) from search.")
-    return urls_list
+        submissions = reddit.subreddit(subreddit_name).search(
+            query,
+            sort='relevance',
+            syntax='plain',
+            time_filter='all',
+            limit=target_limit,
+        )
+
+        for submission in submissions:
+            permalink = getattr(submission, 'permalink', None)
+            if not permalink:
+                continue
+
+            url = f"https://www.reddit.com{permalink}"
+            if url not in seen_urls:
+                seen_urls.add(url)
+                urls.append(url)
+    except Exception as e:
+        print(f"[API] Search failed: {e}")
+        return []
+
+    print(f"[API] Found {len(urls)} unique thread URL(s).")
+    return urls
 
 def get_submissions(reddit, urls, state):
     for url in urls:
@@ -125,7 +91,7 @@ def get_submissions(reddit, urls, state):
             continue
 
 def main():
-    print("=== Reddit Browser-Search -> API Scraper (Token Tracker Edition) ===")
+    print("=== Reddit API Search -> Scraper (Token Tracker Edition) ===")
     reddit = get_reddit_instance()
     
     try:
@@ -166,10 +132,10 @@ def main():
     max_tokens = int(token_input) if token_input.isdigit() else None
 
     if not is_url:
-        urls_to_scrape = get_thread_urls_from_browser(query, scope)
+        urls_to_scrape = get_thread_urls_from_api(reddit, query, scope)
         
         if not urls_to_scrape:
-            print("No URLs found. Reddit might have blocked the search or there are no results.")
+            print("No threads found. Check your Reddit API credentials or try a different query.")
             return
 
     filename = f"Research_{safe_query}_{scope}.txt"

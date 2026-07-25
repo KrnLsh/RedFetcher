@@ -1,22 +1,21 @@
 # RedFetch
 
-A powerful Python research tool designed to scrape Reddit discussions, post bodies, and full nested comment trees into clean, token-counted text files. 
+A powerful Python research tool designed to search and scrape Reddit discussions, post bodies, and full nested comment trees into clean, token-counted text files.
 
-By combining **Selenium** browser automation, **PRAW** (Python Reddit API Wrapper), and **tiktoken** token budgeting, RedFetch lets you easily gather community feedback, sentiment, and product research pre-formatted specifically for Large Language Models (LLMs) like ChatGPT, Claude, and Gemini.
+By combining **PRAW** (Python Reddit API Wrapper) and **tiktoken** token budgeting, RedFetch lets you easily gather community feedback, sentiment, and product research pre-formatted specifically for Large Language Models (LLMs) like ChatGPT, Claude, and Gemini.
 
 ## Key Features
 
-* **Hybrid Scraping Architecture:** Leverages **Selenium** to perform browser searches and infinite scrolling to gather thread URLs, combined with **PRAW** for deep, reliable API extraction of post metadata and comments.
+* **API-Based Search & Extraction:** Uses Reddit's API through **PRAW** for both search and deep extraction of post metadata and comments—no browser automation is involved.
 * **Token-Budget Control (`tiktoken`):** Tracks precise OpenAI token counts (`cl100k_base`) in real-time as data is written. Set a token cap so your output file fits perfectly inside your LLM's context window.
 * **Flexible Search & Direct URL Support:** Search across all of Reddit (`all`), restrict your search to a specific subreddit (`r/mkindia`), or paste a direct Reddit thread URL to scrape a single specific post.
-* **Interactive Browser Search:** Opens a Chrome window to perform searches and allows optional manual Reddit login to bypass search restrictions or blocks.
+* **No Browser Login:** Searches run through the Reddit API, so Chrome, Selenium, and Reddit account login prompts are not used.
 * **Recursive Nested Comments:** Captures full comment hierarchy with structured indents and author tags (`-> [author]: comment body`) so AI models can understand conversation context.
 * **Live Status Dashboard:** Terminal UI updates dynamically on a single line, displaying the current thread title, active operation, and live token count against your limit.
 
 ## Prerequisites
 
 * Python 3.8 or higher
-* Google Chrome installed (required for Selenium WebDriver)
 * Reddit API Credentials (for PRAW)
 
 ## Dependencies
@@ -24,7 +23,7 @@ By combining **Selenium** browser automation, **PRAW** (Python Reddit API Wrappe
 Install the required Python packages:
 
 ```bash
-pip install praw selenium tiktoken
+pip install praw tiktoken
 ```
 
 ## Setup & Configuration
@@ -60,20 +59,13 @@ Follow the interactive prompts:
 ### Example Interaction
 
 ```text
-=== Reddit Browser-Search -> API Scraper (Token Tracker Edition) ===
+=== Reddit API Search -> Scraper (Token Tracker Edition) ===
 1. Enter your search query OR a direct Reddit thread URL: best mechanical keyboard under 5000
 2. Search entire Reddit ('all') or a specific subreddit? (Enter 'all' or sub name): mkindia
 3. Enter maximum token limit for the output txt file (Press Enter for unlimited): 5000
 
-[Browser] Launching browser...
-[Browser] Opening Reddit login page...
-
-[ACTION REQUIRED] Please log in to Reddit in the opened browser window.
-Once you are successfully logged in (or if you wish to skip), press Enter here to continue searching...
-
-[Browser] Proceeding to search for 'best mechanical keyboard under 5000'...
-[Browser] Gathering thread URLs from search. Please wait...
-[Browser] Extracted 42 unique thread URL(s) from search.
+[API] Searching r/mkindia for 'best mechanical keyboard under 5000'...
+[API] Found 42 unique thread URL(s).
 
 Starting API extraction...
 
