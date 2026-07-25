@@ -1,190 +1,252 @@
-import requests
+import praw
+import os
+import sys
+import tiktoken
 import time
-import re
-import html 
+import urllib.parse
+from selenium import webdriver
+from selenium.webdriver.common.by import By
 
-def generate_search_variations(user_topic):
-    
-    queries = []
-    base = user_topic.lower()
-    
-    queries.append(base)
-    
-    fluff_words = ["best", "review", "reviews", "thoughts", "opinion", "opinions", "worth it", "vs", "good", "bad", "help", "question", "recommendation", "suggest", "suggestions"]
-    clean_base = base
-    for word in fluff_words:
-        clean_base = re.sub(rf'\b{word}\b', '', clean_base).strip()
-    clean_base = re.sub(' +', ' ', clean_base)
-    
-    if clean_base and clean_base not in queries:
-        queries.append(clean_base)
-        
-    k_base = re.sub(r'(\d)[,\s]*000\b', r'\1k', clean_base)
-    if k_base and k_base not in queries:
-        queries.append(k_base)
-        
-    prep_words = ["under", "around", "for", "with", "in", "a", "an", "the", "to", "my", "of"]
-    super_clean = k_base
-    for word in prep_words:
-        super_clean = re.sub(rf'\b{word}\b', '', super_clean).strip()
-    super_clean = re.sub(' +', ' ', super_clean)
-    
-    if super_clean and super_clean not in queries:
-        queries.append(super_clean)
-        
-    return queries
+CLIENT_ID = 'YOUR_CLIENT_ID'
+CLIENT_SECRET = None
+USER_AGENT = 'YOUR_USER_AGENT'
 
-def extract_all_comments(children_list, indent_level=0):
-    comments_text = ""
-    indent = "    " * indent_level 
-    
-    for item in children_list:
-        if item['kind'] == 't1' and 'body' in item['data']:
-            raw_body = item['data']['body']
-            clean_body = html.unescape(raw_body)
-            clean_body = clean_body.replace('\n', ' ').strip()
-            clean_body = re.sub(' +', ' ', clean_body)
-            
-            if clean_body not in ["[deleted]", "[removed]"]:
-                comments_text += f"{indent}- {clean_body}\n"
-            
-            replies = item['data'].get('replies')
-            if isinstance(replies, dict) and 'data' in replies and 'children' in replies['data']:
-                comments_text += extract_all_comments(replies['data']['children'], indent_level + 1)
-                
-    return comments_text
+def get_reddit_instance():
+    return praw.Reddit(
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        user_agent=USER_AGENT
+    )
 
-def scrape_reddit_data(subreddit, user_topic, limit=8, sort_by="relevance"):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    search_queries = generate_search_variations(user_topic)
-    
-    print(f"\nAuto-generated search variations:")
-    for i, q in enumerate(search_queries):
-        print(f"  {i+1}. {q}")
-    print(f"\nSearching r/{subreddit} for up to {limit} unique threads...\n")
-    
-    collected_posts = []
-    seen_post_ids = set() 
-    
-    
-    for query in search_queries:
-        if len(collected_posts) >= limit:
-            break 
-            
-        search_url = f"https://www.reddit.com/r/{subreddit}/search.json"
-        
-        request_limit = 100 if limit > 25 else limit 
-        
-        params = {
-            'q': query,
-            'restrict_sr': 'on', 
-            'sort': sort_by,
-            'limit': request_limit
-        }
-        
-        response = requests.get(search_url, headers=headers, params=params)
-        
-        if response.status_code == 200:
-            search_data = response.json()
-            posts = search_data['data']['children']
-            
-            for post in posts:
-                post_id = post['data']['id']
-                if post_id not in seen_post_ids:
-                    seen_post_ids.add(post_id)
-                    collected_posts.append(post)
-                    if len(collected_posts) >= limit:
-                        break
-        
-        time.sleep(1.5)
+def print_status(state):
+    limit_str = str(state['limit']) if state['limit'] else "Unlimited"
+    msg = f"[{state['thread_info']}] {state['status']} | Tokens: {state['tokens']} / {limit_str}"
+    sys.stdout.write(f"\r{msg:<150}")
+    sys.stdout.flush()
 
-    if not collected_posts:
-        print("No posts found. Try a completely different topic or subreddit.")
+def write_and_count(text, file_handle, state, enc):
+    if state['reached']:
         return
 
-    output_text = f"--- REDDIT SCRAPE DATA ---\n"
-    output_text += f"SUBREDDIT: r/{subreddit}\n"
-    output_text += f"ORIGINAL TOPIC: {user_topic}\n"
-    output_text += f"SORTED BY: {sort_by}\n"
-    output_text += f"TOTAL THREADS SCRAPED: {len(collected_posts)}\n"
-    output_text += ("="*60) + "\n\n"
+    tokens = len(enc.encode(text, disallowed_special=()))
     
-    for index, post in enumerate(collected_posts):
-        post_data = post['data']
-        title = post_data['title']
-        permalink = post_data['permalink']
+    if state['limit'] is not None and (state['tokens'] + tokens) >= state['limit']:
+        state['reached'] = True
+        return 
+
+    file_handle.write(text)
+    state['tokens'] += tokens
+    print_status(state)
+
+def write_comments(comments, file_handle, level, state, enc):
+    for comment in comments:
+        if state['reached']:
+            break
+            
+        indent = "    " * level
+        author = comment.author.name if comment.author else "[deleted]"
+        body = comment.body.replace('\n', f'\n{indent}  ').strip()
         
-        display_text = f"Scraping Thread {index + 1}/{len(collected_posts)}: {title}"
-        print(f"\r{display_text[:75].ljust(75)}", end="", flush=True)
+        text_to_write = f"{indent}-> [{author}]: {body}\n"
+        write_and_count(text_to_write, file_handle, state, enc)
         
-        output_text += f"TITLE: {title}\n"
+        if comment.replies:
+            write_comments(comment.replies, file_handle, level + 1, state, enc)
+
+def get_thread_urls_from_browser(query, scope):
+    print(f"\n[Browser] Launching browser...")
+    
+    encoded_query = urllib.parse.quote(query)
+    if scope.lower() == 'all':
+        search_url = f"https://www.reddit.com/search/?q={encoded_query}&type=link"
+    else:
+        search_url = f"https://www.reddit.com/r/{scope}/search/?q={encoded_query}&restrict_sr=1&type=link"
         
-        if post_data.get('selftext'):
-            clean_body = html.unescape(post_data['selftext']).replace('\n', ' ').strip()
-            if clean_body:
-                output_text += f"ORIGINAL POST: {clean_body}\n"
+    options = webdriver.ChromeOptions()
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
+    driver = webdriver.Chrome(options=options)
+    
+    try:
+        print("\n[Browser] Opening Reddit login page...")
+        driver.get("https://www.reddit.com/login")
+        input("\n[ACTION REQUIRED] Please log in to Reddit in the opened browser window.\nOnce you are successfully logged in (or if you wish to skip), press Enter here to continue searching...")
+        
+        print(f"\n[Browser] Proceeding to search for '{query}'...")
+        driver.get(search_url)
+        time.sleep(3)
+        
+        urls = set()
+        last_height = driver.execute_script("return document.body.scrollHeight")
+        
+        target_limit = 500 
+        
+        print(f"[Browser] Gathering thread URLs from search. Please wait...")
+        
+        while len(urls) < target_limit:
+            elements = driver.find_elements(By.TAG_NAME, 'a')
+            for el in elements:
+                try:
+                    href = el.get_attribute('href')
+                    if href and '/comments/' in href:
+                        if href.startswith('/'):
+                            href = f"https://www.reddit.com{href}"
+                        
+                        if 'reddit.com' in href:
+                            clean_url = href.split('?')[0]
+                            urls.add(clean_url)
+                except Exception:
+                    continue
+            
+            if len(urls) >= target_limit:
+                break
                 
-        output_text += "COMMENTS:\n"
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2.5)
+            
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
+            
+    finally:
+        driver.quit()
         
-        comments_url = f"https://www.reddit.com{permalink}.json"
-        comments_response = requests.get(comments_url, headers=headers)
-        
-        if comments_response.status_code == 200:
-            comments_data = comments_response.json()
-            root_comments = comments_data[1]['data']['children']
-            output_text += extract_all_comments(root_comments, indent_level=0)
-                    
-        output_text += "\n" + ("="*60) + "\n\n"
-        time.sleep(1.5) 
+    urls_list = list(urls)[:target_limit]
+    print(f"[Browser] Extracted {len(urls_list)} unique thread URL(s) from search.")
+    return urls_list
 
-    clean_filename = re.sub(r'[^a-zA-Z0-9]', '_', user_topic)
-    filename = f"{clean_filename}_Reddit_Data.txt"
+def get_submissions(reddit, urls, state):
+    for url in urls:
+        state['status'] = 'Pinging API for URL...'
+        print_status(state)
+        try:
+            yield reddit.submission(url=url)
+        except Exception:
+            continue
+
+def main():
+    print("=== Reddit Browser-Search -> API Scraper (Token Tracker Edition) ===")
+    reddit = get_reddit_instance()
     
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(output_text)
-        
-    print(f"\n\nSUCCESS! {len(collected_posts)} unique threads saved to: {filename}")
+    try:
+        enc = tiktoken.get_encoding("cl100k_base")
+    except Exception as e:
+        print(f"Error loading tokenizer: {e}")
+        return
 
+    step = 1
+    query = input(f"{step}. Enter your search query OR a direct Reddit thread URL: ").strip()
+    step += 1
+    
+    is_url = "reddit.com" in query or "redd.it" in query or query.startswith("http")
+    
+    if is_url:
+        print("   -> Detected thread URL. Skipping browser search.")
+        urls_to_scrape = [query]
+        scope = "single_thread"
+        safe_query = "Direct_URL"
+    else:
+        scope = input(f"{step}. Search entire Reddit ('all') or a specific subreddit? (Enter 'all' or sub name): ").strip()
+        step += 1
+        
+        if scope.startswith('/r/'):
+            scope = scope[3:]
+        elif scope.startswith('r/'):
+            scope = scope[2:]
+            
+        scope = scope.strip('/')
+        
+        if not scope or scope.lower() == 'search':
+            scope = 'all'
+        
+        safe_query = "".join([c if c.isalnum() else "_" for c in query[:30]])
+        
+    token_input = input(f"{step}. Enter maximum token limit for the output txt file (Press Enter for unlimited): ").strip()
+    step += 1
+    max_tokens = int(token_input) if token_input.isdigit() else None
+
+    if not is_url:
+        urls_to_scrape = get_thread_urls_from_browser(query, scope)
+        
+        if not urls_to_scrape:
+            print("No URLs found. Reddit might have blocked the search or there are no results.")
+            return
+
+    filename = f"Research_{safe_query}_{scope}.txt"
+    
+    state = {
+        'tokens': 0, 
+        'limit': max_tokens, 
+        'reached': False,
+        'thread_info': 'Init',
+        'status': 'Starting API Scrape...'
+    }
+
+    print(f"\nStarting API extraction...\n")
+
+    with open(filename, 'w', encoding='utf-8') as f:
+        state['status'] = 'Writing headers'
+        header_query = query if not is_url else f"URL: {query}"
+        header = f"RESEARCH QUERY: {header_query}\nSOURCE: {'Thread' if is_url else 'r/'+scope}\n{'='*60}\n\n"
+        write_and_count(header, f, state, enc)
+
+        thread_count = 0
+        limit_str = str(len(urls_to_scrape))
+
+        for submission in get_submissions(reddit, urls_to_scrape, state):
+            if state['reached']:
+                break
+                
+            thread_count += 1
+            
+            safe_title = submission.title.replace('\n', ' ').replace('\r', '')
+            if len(safe_title) > 40:
+                safe_title = safe_title[:37] + "..."
+                
+            state['thread_info'] = f"Thread {thread_count}/{limit_str}: {safe_title}"
+            state['status'] = 'Extracting post body'
+            print_status(state)
+            
+            author = submission.author.name if submission.author else "[deleted]"
+            
+            thread_data = (
+                f"THREAD TITLE: {submission.title}\n"
+                f"THREAD AUTHOR: {author}\n"
+                f"THREAD SCORE: {submission.score}\n"
+                f"POST BODY:\n{submission.selftext}\n"
+                f"{'-' * 30} COMMENTS {'-' * 30}\n"
+            )
+            write_and_count(thread_data, f, state, enc)
+            if state['reached']: break
+            
+            state['status'] = 'Fetching nested comments...'
+            print_status(state)
+            
+            try:
+                submission.comments.replace_more(limit=None)
+            except Exception:
+                pass
+            
+            state['status'] = 'Extracting comments'
+            print_status(state)
+            
+            write_comments(submission.comments, f, 0, state, enc)
+            write_and_count(f"\n{'='*60}\n\n", f, state, enc)
+
+    print("\n\n" + "="*40)
+    print("EXTRACTION COMPLETE")
+    print("="*40)
+    
+    if state['reached']:
+        print(f"STOPPED: Reached your token limit of {max_tokens}.")
+        
+    if thread_count == 0:
+        print("No valid threads scraped.")
+        os.remove(filename)
+    else:
+        print(f"Total Unique Threads Scraped: {thread_count}")
+        print(f"Total Tokens Extracted: {state['tokens']}")
+        print(f"Data saved to: {os.path.abspath(filename)}")
 
 if __name__ == "__main__":
-    print("Reddit Scraper")
-    print("-" * 40)
-    
-    target_sub = input("1. Enter the subreddit name : ").replace("r/", "").strip()
-    target_topic = input("2. Enter the topic you want to research : ").strip()
-    
-    limit_input = input("3. Enter the number of posts to scrape [Press Enter for default: 8]: ").strip()
-    
-    target_limit = 8 
-    if limit_input:
-        try:
-            target_limit = int(limit_input)
-            if target_limit <= 0:
-                print("Number must be greater than 0. Using default: 8.")
-                target_limit = 8
-        except ValueError:
-            print("Invalid number entered. Using default: 8.")
-            target_limit = 8
-            
-    print("\n4. Select sorting method:")
-    print("   [1] Relevance (Default)")
-    print("   [2] Top")
-    print("   [3] New")
-    print("   [4] Hot")
-    print("   [5] Comments")
-    sort_input = input("Enter number [1-5]: ").strip()
-    
-    sort_options = {
-        "1": "relevance",
-        "2": "top",
-        "3": "new",
-        "4": "hot",
-        "5": "comments"
-    }
-    
-    target_sort = sort_options.get(sort_input, "relevance")
-            
-    scrape_reddit_data(subreddit=target_sub, user_topic=target_topic, limit=target_limit, sort_by=target_sort)
+    main()
