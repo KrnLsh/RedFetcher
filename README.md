@@ -78,12 +78,12 @@ EXTRACTION COMPLETE
 STOPPED: Reached your token limit of 5000.
 Total Unique Threads Scraped: 2
 Total Tokens Extracted: 5012
-Data saved to: /path/to/Research_best_mechanical_keyboard_under__mkindia.txt
+Data saved to: /path/to/outputs/Research_best_mechanical_keyboard_under__mkindia.txt
 ```
 
 ## Output Format
 
-The script generates a formatted `.txt` file ready to copy and paste into an AI prompt.
+The script generates a formatted `.txt` file in the `outputs/` folder, ready to copy and paste into an AI prompt. Generated files in that folder are ignored by Git.
 
 **Sample Output (`Research_query_subreddit.txt`):**
 

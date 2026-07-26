@@ -1,0 +1,10 @@
+credentials.env
+.env
+praw.ini
+
+outputs/*
+!outputs/.gitkeep
+Research_*.txt
+
+__pycache__/
+*.py[cod]

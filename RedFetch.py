@@ -1,11 +1,16 @@
 import praw
 import os
 import sys
+import shutil
 import tiktoken
+from dotenv import load_dotenv
 
-CLIENT_ID = 'YOUR_CLIENT_ID'
+load_dotenv("credentials.env")
+
+CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
 CLIENT_SECRET = None
-USER_AGENT = 'YOUR_USER_AGENT'
+USER_AGENT = os.getenv("REDDIT_USER_AGENT")
+OUTPUT_DIRECTORY = 'outputs'
 
 def get_reddit_instance():
     return praw.Reddit(
@@ -17,7 +22,14 @@ def get_reddit_instance():
 def print_status(state):
     limit_str = str(state['limit']) if state['limit'] else "Unlimited"
     msg = f"[{state['thread_info']}] {state['status']} | Tokens: {state['tokens']} / {limit_str}"
-    sys.stdout.write(f"\r{msg:<150}")
+    
+    columns = shutil.get_terminal_size((80, 20)).columns
+    max_len = max(columns - 1, 10)  # -1 to prevent auto-wrapping
+    
+    if len(msg) > max_len:
+        msg = msg[:max_len - 3] + "..."
+        
+    sys.stdout.write(f"\r{msg:<{max_len}}")
     sys.stdout.flush()
 
 def write_and_count(text, file_handle, state, enc):
@@ -138,7 +150,8 @@ def main():
             print("No threads found. Check your Reddit API credentials or try a different query.")
             return
 
-    filename = f"Research_{safe_query}_{scope}.txt"
+    os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+    filename = os.path.join(OUTPUT_DIRECTORY, f"Research_{safe_query}_{scope}.txt")
     
     state = {
         'tokens': 0, 
